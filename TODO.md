@@ -1,0 +1,2 @@
+- [ ] Setup a debug mode and move current prints there, do this with compile flags and preprocessor?
+- [ ] Find a good lib to do gitignore matching with and modify current impl to use that.
