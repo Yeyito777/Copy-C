@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -O2
-LDFLAGS = -lX11
+LDFLAGS = -lX11 -lgit2
 
 TARGET = copy
 

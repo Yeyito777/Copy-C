@@ -5,6 +5,8 @@
 #include <string.h>
 #include <dirent.h>
 #include <fnmatch.h>
+#include <git2.h>
+
 #define MAX_FILE_LEN 131072 
 #define MAX_FILES 2048
 #define MAX_HEADER_SIZE 512
@@ -64,41 +66,25 @@ int isnontext(char* path) {
   return 0;
 }
 
-char **gitignored;
-int numgitignored = 0;
-int isgitignored(char* path) {
-  for (int i = 0; i < numgitignored; i++) {
-    if (!fnmatch(gitignored[i], path, FNM_PATHNAME | FNM_PERIOD)) {
-      debugprint("Ignoring file: %s\n",path);
-      return 1;
-    }
-  }
-  return 0;
-}
+git_repository **repos;
+int repoc = 0;
 
 void getfiles(char **filearr, int *filearrc, char *path) {
   DIR *d = opendir(path);
   if (!d) {printf("Couldn't find dir: %s\n", path); return;}
   struct dirent *dir;
   
-  char ignorepath[PATH_MAX];
-  snprintf(ignorepath,sizeof(ignorepath),"%s/.gitignore",path);
-  FILE *ignorefile = fopen(ignorepath,"r");
-  if (ignorefile) {
-    for (char line[PATH_MAX-1]; fgets(line, sizeof(line), ignorefile); numgitignored++) {
-      char tmp[PATH_MAX];
-      line[strcspn(line,"\n")] = '\0';
-      
-      if (strcmp(path,".")) {
-        snprintf(tmp,sizeof(tmp),"%s/%s",path,line);
-      } else {
-        strcpy(tmp,line);
-      }
-
-      gitignored[numgitignored] = malloc(PATH_MAX);
-      strcpy(gitignored[numgitignored],tmp);
+  char gitpath[PATH_MAX];
+  snprintf(gitpath,sizeof(gitpath),"%s/.git",path);
+  DIR *git = opendir(gitpath);
+  if (git) {
+    int err = git_repository_open(&repos[repoc++], path);
+    if (err < 0) {
+      const git_error *e = git_error_last();
+      printf("Error opening repo: %s\n", e ? e->message : gitpath);
+    } else {
+      debugprint("Succesfully opened repo: %s\n", gitpath);
     }
-    fclose(ignorefile);
   }
 
   while ((dir = readdir(d))) {
@@ -109,8 +95,19 @@ void getfiles(char **filearr, int *filearrc, char *path) {
       snprintf(filepath, sizeof(filepath),"%s/%s",path,dir->d_name);
     }
     
-    char dirpath[PATH_MAX+1]; snprintf(dirpath,sizeof(dirpath),"%s/",filepath); 
-    if (isgitignored(dir->d_type == DT_DIR ? dirpath : filepath)) {continue;}
+    int ignored = -1;
+    for (int i = 0; i < repoc; i++) {
+      int err = git_ignore_path_is_ignored(&ignored, repos[i], filepath);
+      if (err < 0) {
+        const git_error *e = git_error_last();
+        printf("Error checking ignore: %s\n", e ? e->message : "unknown");
+      }
+      if (ignored) {break;}
+    }
+    if (ignored) {
+      debugprint("Skipping gitignored file: %s\n", filepath);
+      continue;
+    }
 
     switch(dir->d_type) {
       case DT_DIR:
@@ -129,7 +126,6 @@ void getfiles(char **filearr, int *filearrc, char *path) {
 void copyfiles(int filec, char** files) {
   char** filearr = malloc(sizeof(char*)*MAX_FILES);
   int filearrc = 0;
-  gitignored = malloc(sizeof(char*)*MAX_FILES);
   getfiles(filearr, &filearrc, ".");
 
   for (int i = 0; i < filearrc; i++) {
@@ -142,20 +138,14 @@ void copyfiles(int filec, char** files) {
     }
   }
 
-  if (numgitignored) {
-    debugprint("Printing gitignore file:\n");
-    for (int i = 0; i < numgitignored; i++) {
-      debugprint("Ignored: %s\n", gitignored[i]);
-    }
-  }
-
   for (int i = 0; i < filearrc; i++) {free(filearr[i]);} free(filearr);
-  for (int i = 0; i < numgitignored; i++) {free(gitignored[i]);} free(gitignored);
 }
 
 int main(int argc, char* argv[]) {
   system("xclip -selection clipboard /dev/null");
   tocopy = malloc((MAX_HEADER_SIZE + MAX_FILE_LEN) * MAX_FILES); tocopy[0] = '\0';
+  repos = malloc(sizeof(git_repository*) * 8);
+  git_libgit2_init();
 
   if (argc > 1) {
     copyfiles(argc-1, argv+1);
@@ -174,5 +164,7 @@ int main(int argc, char* argv[]) {
   }
 
   free(tocopy);
+  for (int i = 0; i < repoc; i++) {git_repository_free(repos[i]);}
+  git_libgit2_shutdown();
   return 0;
 }
