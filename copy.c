@@ -10,6 +10,7 @@
 #define MAX_FILE_LEN 131072 
 #define MAX_FILES 4096
 #define MAX_HEADER_SIZE 512
+#define FLAG_NOGIT (1 << 0)
 
 #if defined(DEBUG)
 #define debugprint(...) printf("[DEBUG]: " __VA_ARGS__)
@@ -19,6 +20,8 @@
 
 char *tocopy;
 int fileamount = 0;
+int totalignored = 0;
+unsigned int flags;
 
 void append(char *filename) {
   FILE *file = fopen(filename,"r");
@@ -44,9 +47,14 @@ typedef struct {
 } sig_t;
 #define sig(t) (sig_t) { .bytes = t, .len = sizeof(t)-1 }
 const sig_t sigs[] = {
-  sig("\x7F\x45\x4C\x46"), // ELF
-  sig("\x4D\x5A"), // EXE/DLL
-  sig("\xFF\xD8\xFF"), // JPEG
+    sig("\x7F\x45\x4C\x46"),                  // ELF
+    sig("\x4D\x5A"),                          // EXE/DLL
+    sig("\xFF\xD8\xFF"),                      // JPEG
+    sig("\x89\x50\x4E\x47\x0D\x0A\x1A\x0A"),  // PNG
+    sig("\x49\x44\x33"),                      // MP3 (ID3 tag)
+    sig("\xFF\xFB"),                          // MP3 (raw frame, common)
+    sig("\x4F\x67\x67\x53"),                  // OGG
+    sig("\x25\x50\x44\x46\x2D"),              // PDF ("%PDF-")
 };
 
 int isnontext(char* path) {
@@ -69,7 +77,7 @@ int isnontext(char* path) {
 git_repository **repos;
 int repoc = 0;
 
-void getfiles(char **filearr, int *filearrc, char *path) {
+void getfiles(char **filearr, int *filearrc, char *path, char **match_optim, int match_optimc) {
   DIR *d = opendir(path);
   if (!d) {printf("Couldn't find dir: %s\n", path); return;}
   struct dirent *dir;
@@ -104,7 +112,8 @@ void getfiles(char **filearr, int *filearrc, char *path) {
       }
       if (ignored) {break;}
     }
-    if (ignored) {
+    if (ignored && !(flags & FLAG_NOGIT)) {
+      totalignored++;
       debugprint("Skipping gitignored file: %s\n", filepath);
       continue;
     }
@@ -112,7 +121,14 @@ void getfiles(char **filearr, int *filearrc, char *path) {
     switch(dir->d_type) {
       case DT_DIR:
         if (!strcmp(dir->d_name,".") || !strcmp(dir->d_name,"..") || !strcmp(dir->d_name,".git")) {continue;}
-        getfiles(filearr,filearrc,filepath);
+        char dirfilepath[PATH_MAX];
+        snprintf(dirfilepath,sizeof(dirfilepath),"%s/",filepath);
+        for (int i = 0; i < match_optimc; i++) {
+          if (!fnmatch(match_optim[i],dirfilepath,0) || match_optim[i][0] == '*' || strstr(match_optim[i], dirfilepath)) { // Only grab dirs whose content could match
+            getfiles(filearr,filearrc,filepath,match_optim,match_optimc);
+            break;
+          }
+        }
         break;
       case DT_REG:;
         if (isnontext(filepath)) {continue;}
@@ -134,8 +150,8 @@ void copyfiles(int filec, char** files) {
       files[i] = dirfix;
     }
   }
-
-  getfiles(filearr, &filearrc, ".");
+  
+  getfiles(filearr, &filearrc, ".", files,filec);
 
   for (int i = 0; i < filearrc; i++) {
     for (int j = 0; j < filec; j++) {
@@ -156,6 +172,12 @@ int main(int argc, char* argv[]) {
   repos = malloc(sizeof(git_repository*) * 8);
   git_libgit2_init();
 
+  if (argc > 0 && !strcmp(argv[1],"-a")) {
+    flags |= FLAG_NOGIT;
+    argc--;
+    argv++;
+  }
+
   if (argc > 1) {
     copyfiles(argc-1, argv+1);
   } else {
@@ -167,7 +189,15 @@ int main(int argc, char* argv[]) {
   if (pipe) {
     fputs(tocopy, pipe);
     pclose(pipe);
-    printf(fileamount <= 0 ? "No files copied.\n" : "Succesfully copied %d files!\n", fileamount);
+    if (fileamount <= 0) {
+      if (totalignored > 0) {
+        printf("No files copied. Did you forget the -a flag?\n");
+      } else {
+        printf("No files copied.\n");
+      }
+    } else {
+      printf("Succesfully copied %d files!\n", fileamount);
+    }
   } else {
     fprintf(stderr, "Clipboard copy failed\n");
   }
