@@ -126,6 +126,15 @@ void getfiles(char **filearr, int *filearrc, char *path) {
 void copyfiles(int filec, char** files) {
   char** filearr = malloc(sizeof(char*)*MAX_FILES);
   int filearrc = 0;
+  
+  for (int i = 0; i < filec; i++) {
+    if (files[i][strlen(files[i])-1] == '/') {
+      char dirfix[PATH_MAX];
+      snprintf(dirfix,sizeof(dirfix),"%s*",files[i]);
+      files[i] = dirfix;
+    }
+  }
+
   getfiles(filearr, &filearrc, ".");
 
   for (int i = 0; i < filearrc; i++) {
