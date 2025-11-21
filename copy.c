@@ -129,6 +129,7 @@ void getfiles(char **filearr, int *filearrc, char *path, char **match_optim, int
             break;
           }
         }
+        debugprint("Skipping directory %s/\n", filepath);
         break;
       case DT_REG:;
         if (isnontext(filepath)) {continue;}
@@ -143,15 +144,17 @@ void copyfiles(int filec, char** files) {
   char** filearr = malloc(sizeof(char*)*MAX_FILES);
   int filearrc = 0;
   
+  char *freeme[64]; int freemec = 0;
   for (int i = 0; i < filec; i++) {
     if (files[i][strlen(files[i])-1] == '/') {
-      char dirfix[PATH_MAX];
-      snprintf(dirfix,sizeof(dirfix),"%s*",files[i]);
+      char *dirfix = malloc(PATH_MAX);
+      sprintf(dirfix,"%s*",files[i]);
       files[i] = dirfix;
+      freeme[freemec++] = dirfix;
     }
   }
   
-  getfiles(filearr, &filearrc, ".", files,filec);
+  getfiles(filearr, &filearrc, ".", files, filec);
 
   for (int i = 0; i < filearrc; i++) {
     for (int j = 0; j < filec; j++) {
@@ -164,6 +167,7 @@ void copyfiles(int filec, char** files) {
   }
 
   for (int i = 0; i < filearrc; i++) {free(filearr[i]);} free(filearr);
+  for (int i = 0; i < freemec; i++) {free(freeme[i]);}
 }
 
 int main(int argc, char* argv[]) {
