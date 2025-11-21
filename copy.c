@@ -8,7 +8,7 @@
 #include <git2.h>
 
 #define MAX_FILE_LEN 131072 
-#define MAX_FILES 2048
+#define MAX_FILES 4096
 #define MAX_HEADER_SIZE 512
 
 #if defined(DEBUG)
@@ -95,7 +95,7 @@ void getfiles(char **filearr, int *filearrc, char *path) {
       snprintf(filepath, sizeof(filepath),"%s/%s",path,dir->d_name);
     }
     
-    int ignored = -1;
+    int ignored = 0;
     for (int i = 0; i < repoc; i++) {
       int err = git_ignore_path_is_ignored(&ignored, repos[i], filepath);
       if (err < 0) {
